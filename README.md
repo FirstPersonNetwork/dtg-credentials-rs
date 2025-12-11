@@ -35,7 +35,7 @@ let phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
 The created `TDGCredential` can be Serialized to JSON using `serde_json` allowing
 it to be passed into various signing libraries
 
-## Common functions?
+## Common functions
 
 You can deal with the raw credential as required.
 
