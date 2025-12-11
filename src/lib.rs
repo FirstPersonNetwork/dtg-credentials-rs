@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::fmt::Display;
 use thiserror::Error;
 
+/// Errors related to DTG Credentials
 #[derive(Error, Debug)]
 pub enum DTGCredentialError {
     #[error("Unknown credential type")]
@@ -54,6 +55,7 @@ impl Display for DTGCredentialType {
     }
 }
 
+/// This helps with matching the right credential type to the [DTGCredentialType]
 const DTG_TYPES: [&str; 7] = [
     "CommunityCredential",
     "PersonhoodCredential",
@@ -190,43 +192,64 @@ where
 // ****************************************************************************
 // Credential Subject types
 // ****************************************************************************
+// NOTE: The DTG credential spec overloads the JSON attributes for different credential payloads.
+// The following enum will map the credential subject schema to correct Struct type
 
+/// This represents all possible credential subjects
+/// The order of the enum is important as it will match on first match
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum CredentialSubject {
+    /// Verifiable Endorsement Credential subject
     Endorsement(CredentialSubjectEndorsement),
+
+    /// R-Card Credential subject
     RCard(CredentialSubjectRCard),
+
+    /// Verifiable Witness Credential subject
     Witness(CredentialSubjectWitness),
+
+    /// Credential Subject of just `id`
+    /// Use by PHC, VCC, VRC and VPC
     Basic(CredentialSubjectBasic),
 }
 
+/// id of the credential subject only
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialSubjectBasic {
     pub id: String,
 }
 
+/// Endorsement Credential subject
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialSubjectEndorsement {
     pub id: String,
+    /// There is no spec for the endorsement content, so we use a generic JSON value
     pub endorsement: Value,
 }
 
+/// Witness Credential subject
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CredentialSubjectWitness {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
+
+    /// There is no spec for the witness context content, so we use a generic JSON value
     #[serde(skip_serializing_if = "Option::is_none")]
     pub witness_context: Option<Value>,
 }
 
+/// R-Card Credential subject
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialSubjectRCard {
     pub id: String,
+
+    /// JCard spec, generic JSON value
     pub card: Value,
 }
 
@@ -250,6 +273,11 @@ mod tests {
         };
 
         assert!(matches!(vcc, DTGCredential::Community(_)));
+    }
+
+    #[test]
+    fn test_vcc_serialize() {
+        todo!("Add helper create")
     }
 
     #[test]
