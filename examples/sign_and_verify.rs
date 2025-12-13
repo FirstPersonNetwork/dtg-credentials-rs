@@ -1,4 +1,4 @@
-//! This example shows a how to:
+//! This example shows how to:
 //! 1. Create a credential
 //! 2. Sign the credential
 //! 3. Verify the credential
@@ -13,7 +13,7 @@ use affinidi_tdk::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use dtg_credentials::{DTGCommon, DTGCredential};
+use dtg_credentials::DTGCredential;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -46,6 +46,9 @@ async fn main() -> Result<()> {
     );
     println!();
 
+    // Clone the unsigned PHC so that we can use it later to verify
+    let unsigned_phc = phc.clone();
+
     // Sign the PHC Credential using the issuer's Secret
     let proof = phc.sign(&issuer_secret, None)?;
     println!("*************************************************************************");
@@ -56,10 +59,7 @@ async fn main() -> Result<()> {
     println!();
 
     // verify the PHC Credential
-    let unsigned_phc = DTGCommon {
-        proof: None,
-        ..phc.credential().clone()
-    };
+
     tdk.verify_data(&unsigned_phc, None, &proof).await?;
     println!("*************************************************************************");
     println!("Successfully verified the Personhood Credential");
