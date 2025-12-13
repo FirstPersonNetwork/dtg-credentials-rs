@@ -18,7 +18,7 @@ use dtg_credentials::{DTGCommon, DTGCredential};
 #[tokio::main]
 async fn main() -> Result<()> {
     // Instantiate the TDK
-    // No environment needs to be loaded as this exmaple is ephemeral
+    // No environment needs to be loaded as this example is ephemeral
     let tdk = TDK::new(
         TDKConfigBuilder::new()
             .with_load_environment(false)
@@ -39,6 +39,7 @@ async fn main() -> Result<()> {
         Utc::now(),
         None,
     );
+    println!("*************************************************************************");
     println!(
         "Created unsigned Personhood Credential:\n{}",
         serde_json::to_string_pretty(&phc).unwrap()
@@ -47,8 +48,9 @@ async fn main() -> Result<()> {
 
     // Sign the PHC Credential using the issuer's Secret
     let proof = phc.sign(&issuer_secret, None)?;
+    println!("*************************************************************************");
     println!(
-        "Signed the PHC:\n {}",
+        "Signed the PHC:\n\n{}",
         serde_json::to_string_pretty(&phc.credential().proof).unwrap()
     );
     println!();
@@ -59,9 +61,10 @@ async fn main() -> Result<()> {
         ..phc.credential().clone()
     };
     tdk.verify_data(&unsigned_phc, None, &proof).await?;
+    println!("*************************************************************************");
     println!("Successfully verified the Personhood Credential");
     println!(
-        "Full Credential:\n{}",
+        "Full Credential:\n\n{}",
         serde_json::to_string_pretty(&phc).unwrap()
     );
     println!();
