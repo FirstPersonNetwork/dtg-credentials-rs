@@ -21,6 +21,15 @@ VerifiableCredential (W3C Standard)
     └── RCardCredential (R-Card)
 ```
 
+## End to End Example
+
+An end-to-end example of creating, signing and verifying a DTG Credential exists
+in `examples`
+
+```bash
+cargo run --example sign_and_verify
+```
+
 ## Creating credentials
 
 Each credential type has it's own `new_*()` function to create a new credential
@@ -34,6 +43,56 @@ let phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
 
 The created `TDGCredential` can be Serialized to JSON using `serde_json` allowing
 it to be passed into various signing libraries
+
+## Signing credentials
+
+By default the `affinidi-signing` feature is enabled which allows you to sign a
+credential
+
+```Rust
+let mut phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
+
+phc.sign(&signing_key)?;
+```
+
+### Verifying credentials
+
+There are two ways to validate a credential:
+
+**Method 1:** If you have the public key bytes that correspond to the signing
+key, then you can directly verify the credential:
+
+```Rust
+let signing_key = Secret::generate_ed25519(None, None);
+let mut phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
+
+phc.sign(&signing_key)?;
+
+phc.verify(&signing_key.get_public_bytes())?;
+```
+
+**Method 2:** If you do not have the public key material, you are likely going to
+need to resolve the DID VerificationMethod and derive the public key bytes used
+when creating the credential.
+
+```Rust
+let mut credential = serde_json::from_str(<raw_credential_string>);
+
+// Get the proof
+let proof = if let Some(proof) = &credential.credential().proof {
+  proof.clone()
+} else {
+    bail!("credential is not signed!");
+};
+
+// Strip proof from the credential
+let unsigned = DTGCommon {
+  proof: None,
+  ..credential.credential().clone()
+};
+
+tdk.verify_data(&unsigned, None, &proof).await?;
+```
 
 ## Common functions
 

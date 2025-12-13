@@ -2,6 +2,10 @@
 */
 
 use affinidi_data_integrity::DataIntegrityProof;
+#[cfg(feature = "affinidi-signing")]
+use affinidi_data_integrity::{DataIntegrityError, verification_proof::VerificationProof};
+#[cfg(feature = "affinidi-signing")]
+use affinidi_secrets_resolver::secrets::Secret;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
@@ -15,6 +19,13 @@ pub mod create;
 pub enum DTGCredentialError {
     #[error("Unknown credential type")]
     UnknownCredential,
+
+    #[cfg(feature = "affinidi-signing")]
+    #[error("Data Integrity Error: {0}")]
+    DataIntegrity(#[from] DataIntegrityError),
+
+    #[error("Credential is not signed")]
+    NotSigned,
 }
 
 /// Defined DTG Credentials
@@ -34,6 +45,11 @@ impl DTGCredential {
     /// get the raw credential
     pub fn credential(&self) -> &DTGCommon {
         &self.credential
+    }
+
+    /// Get the raw credential as mutable
+    pub fn credential_mut(&mut self) -> &mut DTGCommon {
+        &mut self.credential
     }
 
     /// Has this credential been signed?
@@ -64,6 +80,58 @@ impl DTGCredential {
     /// Returns the valid until timestamp
     pub fn valid_until(&self) -> Option<DateTime<Utc>> {
         self.credential.valid_until()
+    }
+
+    #[cfg(feature = "affinidi-signing")]
+    /// Sign the credential using W3C Data Integrity Proof with JCS EdDSA 2022
+    /// signing_secret: The secret key to use to sign the credential
+    /// create_time: Optional creation time for the proof, defaults to now if None
+    pub fn sign(
+        &mut self,
+        signing_secret: &Secret,
+        create_time: Option<DateTime<Utc>>,
+    ) -> Result<DataIntegrityProof, DTGCredentialError> {
+        let proof = DataIntegrityProof::sign_jcs_data(
+            self,
+            None,
+            signing_secret,
+            create_time.map(|ts| ts.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        )?;
+
+        self.credential.proof = Some(proof.clone());
+        Ok(proof)
+    }
+
+    #[cfg(feature = "affinidi-signing")]
+    /// Verify the credential if you already know the public key bytes
+    /// otherwise use the affinidi_tdk:verify_data() method
+    /// public_key_bytes: The public key bytes to use to verify the credential
+    pub fn verify_proof_with_public_key(
+        &self,
+        public_key_bytes: &[u8],
+    ) -> Result<VerificationProof, DTGCredentialError> {
+        let proof = if let Some(proof) = &self.credential.proof {
+            proof.clone()
+        } else {
+            use tracing::warn;
+
+            warn!("Trying to verify a DTG Credential that has no proof");
+            return Err(DTGCredentialError::NotSigned);
+        };
+
+        let unsigned = DTGCommon {
+            proof: None,
+            ..self.credential.clone()
+        };
+
+        Ok(
+            affinidi_data_integrity::verification_proof::verify_data_with_public_key(
+                &unsigned,
+                None,
+                &proof,
+                public_key_bytes,
+            )?,
+        )
     }
 }
 
@@ -795,5 +863,49 @@ mod tests {
         let value = serde_json::to_value(&cred).unwrap();
         let cred2: DTGCommon = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(cred2.valid_until, None);
+    }
+
+    #[cfg(feature = "affinidi-signing")]
+    #[test]
+    fn test_signing() {
+        use affinidi_secrets_resolver::secrets::Secret;
+
+        let secret = Secret::generate_ed25519(None, None);
+
+        let mut cred = DTGCredential::new_vrc(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            Utc::now(),
+            None,
+        );
+
+        assert!(cred.sign(&secret, None).is_ok());
+
+        assert!(
+            cred.verify_proof_with_public_key(secret.get_public_bytes())
+                .is_ok()
+        );
+    }
+
+    #[cfg(feature = "affinidi-signing")]
+    #[test]
+    fn test_signing_no_proof() {
+        use crate::DTGCredentialError;
+        use affinidi_secrets_resolver::secrets::Secret;
+
+        let cred = DTGCredential::new_vrc(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            Utc::now(),
+            None,
+        );
+
+        let secret = Secret::generate_ed25519(None, None);
+        match cred.verify_proof_with_public_key(secret.get_public_bytes()) {
+            Err(DTGCredentialError::NotSigned) => {
+                // Good
+            }
+            _ => panic!("Expected NotSigned error!"),
+        }
     }
 }
