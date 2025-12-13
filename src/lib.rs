@@ -19,14 +19,20 @@ pub enum DTGCredentialError {
 
 /// Defined DTG Credentials
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(try_from = "DTGCommon")]
 pub struct DTGCredential {
+    /// The DTG Credential inner struct
     #[serde(flatten)]
-    credential: Credential,
+    credential: DTGCommon,
+
+    /// Type of the credential
+    #[serde(skip)]
+    type_: DTGCredentialType,
 }
 
 impl DTGCredential {
     /// get the raw credential
-    pub fn credential(&self) -> &Credential {
+    pub fn credential(&self) -> &DTGCommon {
         &self.credential
     }
 
@@ -37,48 +43,32 @@ impl DTGCredential {
 
     /// get the credential type
     pub fn type_(&self) -> DTGCredentialType {
-        match &self.credential {
-            Credential::Community(_) => DTGCredentialType::Community,
-            Credential::Personhood(_) => DTGCredentialType::Personhood,
-            Credential::Relationship(_) => DTGCredentialType::Relationship,
-            Credential::Persona(_) => DTGCredentialType::Persona,
-            Credential::Endorsement(_) => DTGCredentialType::Endorsement,
-            Credential::Witness(_) => DTGCredentialType::Witness,
-            Credential::RCard(_) => DTGCredentialType::RCard,
-        }
+        self.type_.clone()
     }
-}
 
-/// Inner credential type for [DTGCredential]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged, try_from = "DTGCommon")]
-#[non_exhaustive]
-pub enum Credential {
-    Community(DTGCommon),
-    Personhood(DTGCommon),
-    Relationship(DTGCommon),
-    Persona(DTGCommon),
-    Endorsement(DTGCommon),
-    Witness(DTGCommon),
-    RCard(DTGCommon),
-}
+    /// Returns the Issuer DID
+    pub fn issuer(&self) -> &str {
+        self.credential.issuer()
+    }
 
-impl Credential {
-    /// Has this credential been signed?
-    pub fn signed(&self) -> bool {
-        match self {
-            Credential::Community(common)
-            | Credential::Personhood(common)
-            | Credential::Relationship(common)
-            | Credential::Persona(common)
-            | Credential::Endorsement(common)
-            | Credential::Witness(common)
-            | Credential::RCard(common) => common.proof.is_some(),
-        }
+    /// Returns the Subject DID
+    pub fn subject(&self) -> &str {
+        self.credential.subject()
+    }
+
+    /// Returns the valid_from timestamp
+    pub fn valid_from(&self) -> DateTime<Utc> {
+        self.credential.valid_from()
+    }
+
+    /// Returns the valid until timestamp
+    pub fn valid_until(&self) -> Option<DateTime<Utc>> {
+        self.credential.valid_until()
     }
 }
 
 /// TDG VC Type Identifiers
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum DTGCredentialType {
     Community,
@@ -174,6 +164,41 @@ pub struct DTGCommon {
     pub proof: Option<DataIntegrityProof>,
 }
 
+impl DTGCommon {
+    /// Has this credential been signed?
+    /// Returns true if a proof exists
+    /// NOTE: This does NOT validate the proof itself
+    pub fn signed(&self) -> bool {
+        self.proof.is_some()
+    }
+
+    /// Returns the issuer DID
+    pub fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    /// Returns the subject DID
+    pub fn subject(&self) -> &str {
+        match &self.credential_subject {
+            CredentialSubject::Basic(subject) => &subject.id,
+            CredentialSubject::Endorsement(subject) => &subject.id,
+            CredentialSubject::Witness(subject) => &subject.id,
+            CredentialSubject::RCard(subject) => &subject.id,
+        }
+    }
+
+    /// The credential is valid from this timestamp
+    pub fn valid_from(&self) -> DateTime<Utc> {
+        self.valid_from
+    }
+
+    /// The credential is valid until this timestamp, if set
+    pub fn valid_until(&self) -> Option<DateTime<Utc>> {
+        self.valid_until
+    }
+}
+
+/// Helps ensure default starting point is correct
 impl Default for DTGCommon {
     fn default() -> Self {
         DTGCommon {
@@ -196,28 +221,66 @@ impl Default for DTGCommon {
     }
 }
 
-impl TryFrom<DTGCommon> for Credential {
+/// Post deserialize setup of a CredentialSubject and CredntialType
+impl TryFrom<DTGCommon> for DTGCredential {
     type Error = DTGCredentialError;
 
     fn try_from(value: DTGCommon) -> Result<Self, Self::Error> {
         match &value.type_.as_slice().try_into()? {
-            DTGCredentialType::Community => Ok(Credential::Community(value)),
-            DTGCredentialType::Personhood => Ok(Credential::Personhood(value)),
-            DTGCredentialType::Relationship => Ok(Credential::Relationship(value)),
-            DTGCredentialType::Persona => Ok(Credential::Persona(value)),
+            DTGCredentialType::Community => Ok(DTGCredential {
+                type_: DTGCredentialType::Community,
+                credential: value,
+            }),
+            DTGCredentialType::Personhood => Ok(DTGCredential {
+                type_: DTGCredentialType::Personhood,
+                credential: value,
+            }),
+            DTGCredentialType::Relationship => Ok(DTGCredential {
+                type_: DTGCredentialType::Relationship,
+                credential: value,
+            }),
+            DTGCredentialType::Persona => Ok(DTGCredential {
+                type_: DTGCredentialType::Persona,
+                credential: value,
+            }),
             DTGCredentialType::Endorsement => {
                 if let CredentialSubject::Endorsement { .. } = &value.credential_subject {
-                    Ok(Credential::Endorsement(value))
+                    Ok(DTGCredential {
+                        type_: DTGCredentialType::Endorsement,
+                        credential: value,
+                    })
                 } else {
                     Err(DTGCredentialError::UnknownCredential)
                 }
             }
             DTGCredentialType::Witness => match &value.credential_subject {
-                CredentialSubject::Witness { .. } => Ok(Credential::Witness(value)),
+                CredentialSubject::Witness(_) => Ok(DTGCredential {
+                    type_: DTGCredentialType::Witness,
+                    credential: value,
+                }),
+                CredentialSubject::Basic(subject) => {
+                    // If Wtiness CredentialSubject only contains id, it is still valid
+                    Ok(DTGCredential {
+                        type_: DTGCredentialType::Witness,
+                        credential: DTGCommon {
+                            credential_subject: CredentialSubject::Witness(
+                                CredentialSubjectWitness {
+                                    id: subject.id.clone(),
+                                    digest: None,
+                                    witness_context: None,
+                                },
+                            ),
+                            ..value
+                        },
+                    })
+                }
                 _ => Err(DTGCredentialError::UnknownCredential),
             },
             DTGCredentialType::RCard => match &value.credential_subject {
-                CredentialSubject::RCard { .. } => Ok(Credential::RCard(value)),
+                CredentialSubject::RCard { .. } => Ok(DTGCredential {
+                    type_: DTGCredentialType::RCard,
+                    credential: value,
+                }),
                 _ => Err(DTGCredentialError::UnknownCredential),
             },
         }
@@ -269,12 +332,12 @@ pub enum CredentialSubject {
     /// R-Card Credential subject
     RCard(CredentialSubjectRCard),
 
-    /// Verifiable Witness Credential subject
-    Witness(CredentialSubjectWitness),
-
     /// Credential Subject of just `id`
     /// Use by PHC, VCC, VRC and VPC
     Basic(CredentialSubjectBasic),
+
+    /// Verifiable Witness Credential subject
+    Witness(CredentialSubjectWitness),
 }
 
 /// id of the credential subject only
@@ -298,6 +361,7 @@ pub struct CredentialSubjectEndorsement {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CredentialSubjectWitness {
     pub id: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 
@@ -318,11 +382,11 @@ pub struct CredentialSubjectRCard {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Credential, CredentialSubject};
+    use crate::{CredentialSubject, DTGCredential, DTGCredentialType};
 
     #[test]
     fn test_vcc_deserialize() {
-        let vcc: Credential = match serde_json::from_str(
+        let vcc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
@@ -335,12 +399,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VCC: {}", e),
         };
 
-        assert!(matches!(vcc, Credential::Community(_)));
+        assert!(matches!(vcc.type_, DTGCredentialType::Community));
+        assert!(matches!(
+            vcc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
     }
 
     #[test]
     fn test_phc_deserialize() {
-        let phc: Credential = match serde_json::from_str(
+        let phc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "PersonhoodCredential"],
@@ -353,12 +421,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize PHC: {}", e),
         };
 
-        assert!(matches!(phc, Credential::Personhood(_)));
+        assert!(matches!(phc.type_, DTGCredentialType::Personhood));
+        assert!(matches!(
+            phc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
     }
 
     #[test]
     fn test_vrc_deserialize() {
-        let vrc: Credential = match serde_json::from_str(
+        let vrc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "RelationshipCredential"],
@@ -371,12 +443,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VRC: {}", e),
         };
 
-        assert!(matches!(vrc, Credential::Relationship(_)));
+        assert!(matches!(vrc.type_, DTGCredentialType::Relationship));
+        assert!(matches!(
+            vrc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
     }
 
     #[test]
     fn test_vpc_deserialize() {
-        let vpc: Credential = match serde_json::from_str(
+        let vpc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "PersonaCredential"],
@@ -389,12 +465,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VPC: {}", e),
         };
 
-        assert!(matches!(vpc, Credential::Persona(_)));
+        assert!(matches!(vpc.type_, DTGCredentialType::Persona));
+        assert!(matches!(
+            vpc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
     }
 
     #[test]
     fn test_vec_deserialize() {
-        let vec: Credential = match serde_json::from_str(
+        let vec: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],
@@ -407,12 +487,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VEC: {}", e),
         };
 
-        assert!(matches!(vec, Credential::Endorsement(_)));
+        assert!(matches!(vec.type_, DTGCredentialType::Endorsement));
+        assert!(matches!(
+            vec.credential().credential_subject,
+            CredentialSubject::Endorsement(_)
+        ));
     }
 
     #[test]
     fn test_vec_bad_deserialize() {
-        match serde_json::from_str::<Credential>(
+        match serde_json::from_str::<DTGCredential>(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],
@@ -430,7 +514,7 @@ mod tests {
 
     #[test]
     fn test_vwc_simple_deserialize() {
-        let vwc: Credential = match serde_json::from_str(
+        let vwc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
@@ -443,12 +527,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VWC: {}", e),
         };
 
-        assert!(matches!(vwc, Credential::Witness(_)));
+        assert!(matches!(vwc.type_, DTGCredentialType::Witness));
+        assert!(matches!(
+            vwc.credential().credential_subject,
+            CredentialSubject::Witness(_)
+        ));
     }
 
     #[test]
     fn test_vwc_full_deserialize() {
-        let vwc: Credential = match serde_json::from_str(
+        let vwc: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
@@ -461,19 +549,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VWC: {}", e),
         };
 
-        assert!(matches!(vwc, Credential::Witness(_)));
-        if let Credential::Witness(common) = vwc
-            && let CredentialSubject::Witness { .. } = common.credential_subject
-        {
-            // good
-        } else {
-            panic!("CredentialSubject is not of type Witness")
-        }
+        assert!(matches!(vwc.type_, DTGCredentialType::Witness));
+        assert!(matches!(
+            vwc.credential().credential_subject,
+            CredentialSubject::Witness(_)
+        ));
     }
 
     #[test]
     fn test_vwc_bad_deserialize() {
-        if serde_json::from_str::<Credential>(
+        if serde_json::from_str::<DTGCredential>(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
@@ -488,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_rcard_simple_deserialize() {
-        let rcard: Credential = match serde_json::from_str(
+        let rcard: DTGCredential = match serde_json::from_str(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "RCardCredential"],
@@ -501,12 +586,16 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize R-Card: {}", e),
         };
 
-        assert!(matches!(rcard, Credential::RCard(_)));
+        assert!(matches!(rcard.type_, DTGCredentialType::RCard));
+        assert!(matches!(
+            rcard.credential().credential_subject,
+            CredentialSubject::RCard(_)
+        ));
     }
 
     #[test]
     fn test_rcard_bad_deserialize() {
-        if serde_json::from_str::<Credential>(
+        if serde_json::from_str::<DTGCredential>(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "RCardCredential"],
@@ -522,7 +611,7 @@ mod tests {
     }
     #[test]
     fn test_deserialize_unknown() {
-        match serde_json::from_str::<Credential>(
+        match serde_json::from_str::<DTGCredential>(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "UnknownCredential"],
@@ -544,7 +633,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_mismatched_credential_subject() {
-        match serde_json::from_str::<Credential>(
+        match serde_json::from_str::<DTGCredential>(
             r#"{
                 "@context": [],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],

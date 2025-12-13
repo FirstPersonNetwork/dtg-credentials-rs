@@ -3,7 +3,7 @@
 */
 
 use crate::{
-    Credential, CredentialSubject, CredentialSubjectBasic, CredentialSubjectEndorsement,
+    CredentialSubject, CredentialSubjectBasic, CredentialSubjectEndorsement,
     CredentialSubjectRCard, CredentialSubjectWitness, DTGCommon, DTGCredential, DTGCredentialType,
 };
 use chrono::{DateTime, Utc};
@@ -32,7 +32,8 @@ impl DTGCredential {
         vcc.type_.push(DTGCredentialType::Community.to_string());
 
         DTGCredential {
-            credential: Credential::Community(vcc),
+            credential: vcc,
+            type_: DTGCredentialType::Community,
         }
     }
 
@@ -58,7 +59,8 @@ impl DTGCredential {
         phc.type_.push(DTGCredentialType::Personhood.to_string());
 
         DTGCredential {
-            credential: Credential::Personhood(phc),
+            credential: phc,
+            type_: DTGCredentialType::Personhood,
         }
     }
 
@@ -84,7 +86,8 @@ impl DTGCredential {
         vrc.type_.push(DTGCredentialType::Relationship.to_string());
 
         DTGCredential {
-            credential: Credential::Relationship(vrc),
+            credential: vrc,
+            type_: DTGCredentialType::Relationship,
         }
     }
 
@@ -110,7 +113,8 @@ impl DTGCredential {
         vpc.type_.push(DTGCredentialType::Persona.to_string());
 
         DTGCredential {
-            credential: Credential::Persona(vpc),
+            credential: vpc,
+            type_: DTGCredentialType::Persona,
         }
     }
 
@@ -141,7 +145,8 @@ impl DTGCredential {
         vec.type_.push(DTGCredentialType::Endorsement.to_string());
 
         DTGCredential {
-            credential: Credential::Endorsement(vec),
+            credential: vec,
+            type_: DTGCredentialType::Endorsement,
         }
     }
 
@@ -175,7 +180,8 @@ impl DTGCredential {
         vwc.type_.push(DTGCredentialType::Witness.to_string());
 
         DTGCredential {
-            credential: Credential::Witness(vwc),
+            credential: vwc,
+            type_: DTGCredentialType::Witness,
         }
     }
 
@@ -206,7 +212,8 @@ impl DTGCredential {
         rcard.type_.push(DTGCredentialType::RCard.to_string());
 
         DTGCredential {
-            credential: Credential::RCard(rcard),
+            credential: rcard,
+            type_: DTGCredentialType::RCard,
         }
     }
 }
