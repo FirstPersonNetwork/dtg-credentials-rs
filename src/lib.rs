@@ -82,6 +82,15 @@ impl DTGCredential {
         self.credential.valid_until()
     }
 
+    /// Returns the proof value if signed else None
+    pub fn proof_value(&self) -> Option<&str> {
+        if let Some(proof) = &self.credential.proof {
+            proof.proof_value.as_deref()
+        } else {
+            None
+        }
+    }
+
     #[cfg(feature = "affinidi-signing")]
     /// Sign the credential using W3C Data Integrity Proof with JCS EdDSA 2022
     /// signing_secret: The secret key to use to sign the credential
