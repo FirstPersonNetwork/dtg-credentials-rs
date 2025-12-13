@@ -382,7 +382,11 @@ pub struct CredentialSubjectRCard {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CredentialSubject, DTGCredential, DTGCredentialType};
+    use crate::{
+        CredentialSubject, CredentialSubjectRCard, DTGCommon, DTGCredential, DTGCredentialType,
+    };
+    use chrono::{DateTime, Utc};
+    use serde_json::Value;
 
     #[test]
     fn test_vcc_deserialize() {
@@ -488,6 +492,7 @@ mod tests {
         };
 
         assert!(matches!(vec.type_, DTGCredentialType::Endorsement));
+        assert!(matches!(vec.subject(), "did:example:citizenRDid"));
         assert!(matches!(
             vec.credential().credential_subject,
             CredentialSubject::Endorsement(_)
@@ -528,6 +533,7 @@ mod tests {
         };
 
         assert!(matches!(vwc.type_, DTGCredentialType::Witness));
+        assert!(matches!(vwc.subject(), "did:example:citizenRDid"));
         assert!(matches!(
             vwc.credential().credential_subject,
             CredentialSubject::Witness(_)
@@ -549,7 +555,7 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VWC: {}", e),
         };
 
-        assert!(matches!(vwc.type_, DTGCredentialType::Witness));
+        assert!(matches!(vwc.type_(), DTGCredentialType::Witness));
         assert!(matches!(
             vwc.credential().credential_subject,
             CredentialSubject::Witness(_)
@@ -586,7 +592,8 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize R-Card: {}", e),
         };
 
-        assert!(matches!(rcard.type_, DTGCredentialType::RCard));
+        assert!(matches!(rcard.type_(), DTGCredentialType::RCard));
+        assert!(matches!(rcard.subject(), "did:example:citizenRDid"));
         assert!(matches!(
             rcard.credential().credential_subject,
             CredentialSubject::RCard(_)
@@ -651,5 +658,142 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn test_proof_signed() {
+        let cred: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": [],
+                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "issuer": "did:example:community",
+                "validFrom": "2024-06-18T10:00:00Z",
+                "credentialSubject": { "id": "did:example:rDid" },
+                "proof": {
+                    "type": "DataIntegrityProof",
+                    "cryptosuite": "eddsa-jcs-2022",
+                    "created": "2025-12-04T00:00:00",
+                    "verificationMethod": "did:example:test#key-1",
+                    "proofPurpose": "assertionMethod",
+                    "proofValue": "abcd"
+                }
+            }"#,
+        ) {
+            Ok(vcc) => vcc,
+            Err(e) => panic!("Couldn't deserialize credential: {}", e),
+        };
+
+        assert!(cred.signed());
+    }
+
+    #[test]
+    fn test_proof_not_signed() {
+        let cred: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": [],
+                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "issuer": "did:example:community",
+                "validFrom": "2024-06-18T10:00:00Z",
+                "credentialSubject": { "id": "did:example:rDid" }
+            }"#,
+        ) {
+            Ok(vcc) => vcc,
+            Err(e) => panic!("Couldn't deserialize credential: {}", e),
+        };
+
+        assert!(!cred.signed());
+    }
+
+    #[test]
+    fn test_helpers() {
+        let cred: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": [],
+                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "issuer": "did:example:issuer",
+                "validFrom": "2024-06-18T00:00:00Z",
+                "credentialSubject": { "id": "did:example:subject" }
+            }"#,
+        ) {
+            Ok(vcc) => vcc,
+            Err(e) => panic!("Couldn't deserialize credential: {}", e),
+        };
+
+        assert_eq!(cred.issuer(), "did:example:issuer");
+        assert_eq!(cred.subject(), "did:example:subject");
+        assert_eq!(
+            cred.valid_from()
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            "2024-06-18T00:00:00Z"
+        );
+        assert_eq!(cred.valid_until(), None);
+    }
+
+    #[test]
+    fn test_valid_until() {
+        let cred: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": [],
+                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "issuer": "did:example:issuer",
+                "validFrom": "2024-06-18T00:00:00Z",
+                "validUntil": "2030-01-01T00:00:00Z",
+                "credentialSubject": { "id": "did:example:subject" }
+            }"#,
+        ) {
+            Ok(vcc) => vcc,
+            Err(e) => panic!("Couldn't deserialize credential: {}", e),
+        };
+
+        assert_eq!(
+            cred.valid_until()
+                .unwrap()
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            "2030-01-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn test_bad_type() {
+        assert!(
+            std::convert::TryInto::<DTGCredentialType>::try_into(
+                vec!["bad_type".to_string()].as_slice(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_badly_constructed_vwc() {
+        let mut cred = DTGCommon::default();
+        cred.type_.push("WitnessCredential".to_string());
+        cred.credential_subject = CredentialSubject::RCard(CredentialSubjectRCard {
+            id: "did:example:bad".to_string(),
+            card: Value::Null,
+        });
+
+        assert!(std::convert::TryInto::<DTGCredential>::try_into(cred).is_err());
+    }
+
+    #[test]
+    fn test_iso8601_format_option() {
+        let now: DateTime<Utc> = DateTime::parse_from_rfc3339(
+            &Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        )
+        .unwrap()
+        .to_utc();
+        let cred = DTGCommon {
+            valid_until: Some(now),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(&cred).unwrap();
+        let cred2: DTGCommon = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(cred2.valid_until, Some(now));
+
+        let cred = DTGCommon::default();
+        let value = serde_json::to_value(&cred).unwrap();
+        let cred2: DTGCommon = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(cred2.valid_until, None);
     }
 }
