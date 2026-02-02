@@ -14,6 +14,31 @@ use thiserror::Error;
 
 pub mod create;
 
+/// What W3C VC Format is the credential using?
+#[derive(Clone, Copy, Debug)]
+pub enum W3CVCVersion {
+    /// https://www.w3.org/2018/credentials/v1
+    V1_1,
+
+    /// https://www.w3.org/ns/credentials/v2
+    V2_0,
+}
+
+impl TryFrom<&[String]> for W3CVCVersion {
+    type Error = DTGCredentialError;
+
+    /// Will return the W3C Version from the context array
+    fn try_from(types: &[String]) -> Result<Self, Self::Error> {
+        if types.contains(&"https://www.w3.org/2018/credentials/v1".to_string()) {
+            Ok(W3CVCVersion::V1_1)
+        } else if types.contains(&"https://www.w3.org/ns/credentials/v2".to_string()) {
+            Ok(W3CVCVersion::V2_0)
+        } else {
+            Err(DTGCredentialError::UnknownVCVersion)
+        }
+    }
+}
+
 /// Errors related to DTG Credentials
 #[derive(Error, Debug)]
 pub enum DTGCredentialError {
@@ -26,6 +51,9 @@ pub enum DTGCredentialError {
 
     #[error("Credential is not signed")]
     NotSigned,
+
+    #[error("Unknown W3C VC Version")]
+    UnknownVCVersion,
 }
 
 /// Defined DTG Credentials
@@ -39,6 +67,10 @@ pub struct DTGCredential {
     /// Type of the credential
     #[serde(skip)]
     type_: DTGCredentialType,
+
+    /// W3C VC Version
+    #[serde(skip)]
+    version: W3CVCVersion,
 }
 
 impl DTGCredential {
@@ -142,15 +174,19 @@ impl DTGCredential {
             )?,
         )
     }
+
+    pub fn get_w3c_vc_version(&self) -> W3CVCVersion {
+        self.version
+    }
 }
 
 /// TDG VC Type Identifiers
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum DTGCredentialType {
-    Community,
-    Personhood,
+    Membership,
     Relationship,
+    Invitation,
     Persona,
     Endorsement,
     Witness,
@@ -160,9 +196,9 @@ pub enum DTGCredentialType {
 impl Display for DTGCredentialType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DTGCredentialType::Community => write!(f, "CommunityCredential"),
-            DTGCredentialType::Personhood => write!(f, "PersonhoodCredential"),
+            DTGCredentialType::Membership => write!(f, "MembershipCredential"),
             DTGCredentialType::Relationship => write!(f, "RelationshipCredential"),
+            DTGCredentialType::Invitation => write!(f, "InvitationCredential"),
             DTGCredentialType::Persona => write!(f, "PersonaCredential"),
             DTGCredentialType::Endorsement => write!(f, "EndorsementCredential"),
             DTGCredentialType::Witness => write!(f, "WitnessCredential"),
@@ -173,9 +209,9 @@ impl Display for DTGCredentialType {
 
 /// This helps with matching the right credential type to the [DTGCredentialType]
 const DTG_TYPES: [&str; 7] = [
-    "CommunityCredential",
-    "PersonhoodCredential",
+    "MembershipCredential",
     "RelationshipCredential",
+    "InvitationCredential",
     "PersonaCredential",
     "EndorsementCredential",
     "WitnessCredential",
@@ -188,9 +224,9 @@ impl TryFrom<&[String]> for DTGCredentialType {
     fn try_from(types: &[String]) -> Result<Self, Self::Error> {
         if let Some(type_) = DTG_TYPES.iter().find(|t| types.contains(&t.to_string())) {
             match *type_ {
-                "CommunityCredential" => Ok(DTGCredentialType::Community),
-                "PersonhoodCredential" => Ok(DTGCredentialType::Personhood),
+                "MembershipCredential" => Ok(DTGCredentialType::Membership),
                 "RelationshipCredential" => Ok(DTGCredentialType::Relationship),
+                "InvitationCredential" => Ok(DTGCredentialType::Invitation),
                 "PersonaCredential" => Ok(DTGCredentialType::Persona),
                 "EndorsementCredential" => Ok(DTGCredentialType::Endorsement),
                 "WitnessCredential" => Ok(DTGCredentialType::Witness),
@@ -225,12 +261,16 @@ pub struct DTGCommon {
     pub issuer: String,
 
     /// ISO 8601 format of when this credentials become valid from
-    #[serde(serialize_with = "iso8601_format")]
+    #[serde(serialize_with = "iso8601_format", alias = "issuanceDate")]
     pub valid_from: DateTime<Utc>,
 
     /// ISO 8601 format of when these credentials are valid to
     #[serde(serialize_with = "iso8601_format_option")]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "expirationDate",
+        default
+    )]
     pub valid_until: Option<DateTime<Utc>>,
 
     /// The assertion between the entities involved
@@ -304,26 +344,31 @@ impl TryFrom<DTGCommon> for DTGCredential {
 
     fn try_from(value: DTGCommon) -> Result<Self, Self::Error> {
         match &value.type_.as_slice().try_into()? {
-            DTGCredentialType::Community => Ok(DTGCredential {
-                type_: DTGCredentialType::Community,
-                credential: value,
-            }),
-            DTGCredentialType::Personhood => Ok(DTGCredential {
-                type_: DTGCredentialType::Personhood,
+            DTGCredentialType::Membership => Ok(DTGCredential {
+                type_: DTGCredentialType::Membership,
+                version: value.context.as_slice().try_into()?,
                 credential: value,
             }),
             DTGCredentialType::Relationship => Ok(DTGCredential {
                 type_: DTGCredentialType::Relationship,
+                version: value.context.as_slice().try_into()?,
+                credential: value,
+            }),
+            DTGCredentialType::Invitation => Ok(DTGCredential {
+                type_: DTGCredentialType::Invitation,
+                version: value.context.as_slice().try_into()?,
                 credential: value,
             }),
             DTGCredentialType::Persona => Ok(DTGCredential {
                 type_: DTGCredentialType::Persona,
+                version: value.context.as_slice().try_into()?,
                 credential: value,
             }),
             DTGCredentialType::Endorsement => {
                 if let CredentialSubject::Endorsement { .. } = &value.credential_subject {
                     Ok(DTGCredential {
                         type_: DTGCredentialType::Endorsement,
+                        version: value.context.as_slice().try_into()?,
                         credential: value,
                     })
                 } else {
@@ -333,12 +378,14 @@ impl TryFrom<DTGCommon> for DTGCredential {
             DTGCredentialType::Witness => match &value.credential_subject {
                 CredentialSubject::Witness(_) => Ok(DTGCredential {
                     type_: DTGCredentialType::Witness,
+                    version: value.context.as_slice().try_into()?,
                     credential: value,
                 }),
                 CredentialSubject::Basic(subject) => {
                     // If Wtiness CredentialSubject only contains id, it is still valid
                     Ok(DTGCredential {
                         type_: DTGCredentialType::Witness,
+                        version: value.context.as_slice().try_into()?,
                         credential: DTGCommon {
                             credential_subject: CredentialSubject::Witness(
                                 CredentialSubjectWitness {
@@ -356,6 +403,7 @@ impl TryFrom<DTGCommon> for DTGCredential {
             DTGCredentialType::RCard => match &value.credential_subject {
                 CredentialSubject::RCard { .. } => Ok(DTGCredential {
                     type_: DTGCredentialType::RCard,
+                    version: value.context.as_slice().try_into()?,
                     credential: value,
                 }),
                 _ => Err(DTGCredentialError::UnknownCredential),
@@ -410,7 +458,7 @@ pub enum CredentialSubject {
     RCard(CredentialSubjectRCard),
 
     /// Credential Subject of just `id`
-    /// Use by PHC, VCC, VRC and VPC
+    /// Use by  VMC, VRC, VIC and VPC
     Basic(CredentialSubjectBasic),
 
     /// Verifiable Witness Credential subject
@@ -444,7 +492,21 @@ pub struct CredentialSubjectWitness {
 
     /// There is no spec for the witness context content, so we use a generic JSON value
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub witness_context: Option<Value>,
+    pub witness_context: Option<WitnessContext>,
+}
+
+/// Witness Credential Context
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WitnessContext {
+    /// Human-readable event name
+    pub event: Option<String>,
+
+    /// Session or nonce identifier
+    pub session_id: Option<String>,
+
+    ///Verification method used
+    pub method: Option<String>,
 }
 
 /// R-Card Credential subject
@@ -466,45 +528,23 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn test_vcc_deserialize() {
-        let vcc: DTGCredential = match serde_json::from_str(
+    fn test_vmc_deserialize() {
+        let vmc: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential"],
                 "issuer": "did:example:community",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:rDid" }
             }"#,
         ) {
-            Ok(vcc) => vcc,
-            Err(e) => panic!("Couldn't deserialize VCC: {}", e),
+            Ok(vmc) => vmc,
+            Err(e) => panic!("Couldn't deserialize VMC: {}", e),
         };
 
-        assert!(matches!(vcc.type_, DTGCredentialType::Community));
+        assert!(matches!(vmc.type_, DTGCredentialType::Membership));
         assert!(matches!(
-            vcc.credential().credential_subject,
-            CredentialSubject::Basic(_)
-        ));
-    }
-
-    #[test]
-    fn test_phc_deserialize() {
-        let phc: DTGCredential = match serde_json::from_str(
-            r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "PersonhoodCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
-                "validFrom": "2024-06-18T10:00:00Z",
-                "credentialSubject": { "id": "did:example:citizenRDid" }
-            }"#,
-        ) {
-            Ok(phc) => phc,
-            Err(e) => panic!("Couldn't deserialize PHC: {}", e),
-        };
-
-        assert!(matches!(phc.type_, DTGCredentialType::Personhood));
-        assert!(matches!(
-            phc.credential().credential_subject,
+            vmc.credential().credential_subject,
             CredentialSubject::Basic(_)
         ));
     }
@@ -513,14 +553,14 @@ mod tests {
     fn test_vrc_deserialize() {
         let vrc: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "RelationshipCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid" }
             }"#,
         ) {
-            Ok(phc) => phc,
+            Ok(vrc) => vrc,
             Err(e) => panic!("Couldn't deserialize VRC: {}", e),
         };
 
@@ -532,12 +572,34 @@ mod tests {
     }
 
     #[test]
+    fn test_vic_deserialize() {
+        let vic: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "InvitationCredential"],
+                "issuer": "did:example:governmentAgencyVicDid",
+                "validFrom": "2024-06-18T10:00:00Z",
+                "credentialSubject": { "id": "did:example:citizenRDid" }
+            }"#,
+        ) {
+            Ok(vic) => vic,
+            Err(e) => panic!("Couldn't deserialize VIC: {}", e),
+        };
+
+        assert!(matches!(vic.type_, DTGCredentialType::Invitation));
+        assert!(matches!(
+            vic.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
+    }
+
+    #[test]
     fn test_vpc_deserialize() {
         let vpc: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "PersonaCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid" }
             }"#,
@@ -557,9 +619,9 @@ mod tests {
     fn test_vec_deserialize() {
         let vec: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid", "endorsement": {} }
             }"#,
@@ -580,9 +642,9 @@ mod tests {
     fn test_vec_bad_deserialize() {
         match serde_json::from_str::<DTGCredential>(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid", "other": [] }
             }"#,
@@ -598,9 +660,9 @@ mod tests {
     fn test_vwc_simple_deserialize() {
         let vwc: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid" }
             }"#,
@@ -621,9 +683,9 @@ mod tests {
     fn test_vwc_full_deserialize() {
         let vwc: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid", "digest": "abcdf", "witnessContext": {} }
             }"#,
@@ -643,9 +705,9 @@ mod tests {
     fn test_vwc_bad_deserialize() {
         if serde_json::from_str::<DTGCredential>(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "WitnessCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid", "digest": "abcdf", "wrongContext": {}  }
             }"#,
@@ -658,9 +720,9 @@ mod tests {
     fn test_rcard_simple_deserialize() {
         let rcard: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "RCardCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid", "card": [] }
             }"#,
@@ -681,9 +743,9 @@ mod tests {
     fn test_rcard_bad_deserialize() {
         if serde_json::from_str::<DTGCredential>(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "RCardCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid"  }
             }"#,
@@ -697,9 +759,9 @@ mod tests {
     fn test_deserialize_unknown() {
         match serde_json::from_str::<DTGCredential>(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "UnknownCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid" }
             }"#,
@@ -719,9 +781,9 @@ mod tests {
     fn test_deserialize_mismatched_credential_subject() {
         match serde_json::from_str::<DTGCredential>(
             r#"{
-                "@context": [],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
                 "type": ["VerifiableCredential", "DTGCredential",  "EndorsementCredential"],
-                "issuer": "did:example:governmentAgencyPhcDid",
+                "issuer": "did:example:governmentAgencyDid",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:citizenRDid" }
             }"#,
@@ -741,8 +803,8 @@ mod tests {
     fn test_proof_signed() {
         let cred: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential"],
                 "issuer": "did:example:community",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:rDid" },
@@ -756,7 +818,7 @@ mod tests {
                 }
             }"#,
         ) {
-            Ok(vcc) => vcc,
+            Ok(vmc) => vmc,
             Err(e) => panic!("Couldn't deserialize credential: {}", e),
         };
 
@@ -767,14 +829,14 @@ mod tests {
     fn test_proof_not_signed() {
         let cred: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential"],
                 "issuer": "did:example:community",
                 "validFrom": "2024-06-18T10:00:00Z",
                 "credentialSubject": { "id": "did:example:rDid" }
             }"#,
         ) {
-            Ok(vcc) => vcc,
+            Ok(vmc) => vmc,
             Err(e) => panic!("Couldn't deserialize credential: {}", e),
         };
 
@@ -785,14 +847,14 @@ mod tests {
     fn test_helpers() {
         let cred: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential"],
                 "issuer": "did:example:issuer",
                 "validFrom": "2024-06-18T00:00:00Z",
                 "credentialSubject": { "id": "did:example:subject" }
             }"#,
         ) {
-            Ok(vcc) => vcc,
+            Ok(vmc) => vmc,
             Err(e) => panic!("Couldn't deserialize credential: {}", e),
         };
 
@@ -810,15 +872,15 @@ mod tests {
     fn test_valid_until() {
         let cred: DTGCredential = match serde_json::from_str(
             r#"{
-                "@context": [],
-                "type": ["VerifiableCredential", "DTGCredential",  "CommunityCredential"],
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential"],
                 "issuer": "did:example:issuer",
                 "validFrom": "2024-06-18T00:00:00Z",
                 "validUntil": "2030-01-01T00:00:00Z",
                 "credentialSubject": { "id": "did:example:subject" }
             }"#,
         ) {
-            Ok(vcc) => vcc,
+            Ok(vmc) => vmc,
             Err(e) => panic!("Couldn't deserialize credential: {}", e),
         };
 

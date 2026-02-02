@@ -5,23 +5,24 @@
 use crate::{
     CredentialSubject, CredentialSubjectBasic, CredentialSubjectEndorsement,
     CredentialSubjectRCard, CredentialSubjectWitness, DTGCommon, DTGCredential, DTGCredentialType,
+    WitnessContext,
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 impl DTGCredential {
-    /// Creates a new Verified Community Credential (VCC)
+    /// Creates a new Verified Memebrship Credential (VMC)
     /// issuer: The issuer DID of the credential
     /// subject: The DID of the subject of this credential
     /// valid_from: The datetime from which this credential is valid
     /// valid_until: Optional: The datetime this credential is valid until
-    pub fn new_vcc(
+    pub fn new_vmc(
         issuer: String,
         subject: String,
         valid_from: DateTime<Utc>,
         valid_until: Option<DateTime<Utc>>,
     ) -> Self {
-        let mut vcc = DTGCommon {
+        let mut vmc = DTGCommon {
             issuer,
             valid_from,
             valid_until,
@@ -29,38 +30,12 @@ impl DTGCredential {
             ..Default::default()
         };
 
-        vcc.type_.push(DTGCredentialType::Community.to_string());
+        vmc.type_.push(DTGCredentialType::Membership.to_string());
 
         DTGCredential {
-            credential: vcc,
-            type_: DTGCredentialType::Community,
-        }
-    }
-
-    /// Creates a new Personhood Credential (PHC)
-    /// issuer: The issuer DID of the credential
-    /// subject: The DID of the subject of this credential
-    /// valid_from: The datetime from which this credential is valid
-    /// valid_until: Optional: The datetime this credential is valid until
-    pub fn new_phc(
-        issuer: String,
-        subject: String,
-        valid_from: DateTime<Utc>,
-        valid_until: Option<DateTime<Utc>>,
-    ) -> Self {
-        let mut phc = DTGCommon {
-            issuer,
-            valid_from,
-            valid_until,
-            credential_subject: CredentialSubject::Basic(CredentialSubjectBasic { id: subject }),
-            ..Default::default()
-        };
-
-        phc.type_.push(DTGCredentialType::Personhood.to_string());
-
-        DTGCredential {
-            credential: phc,
-            type_: DTGCredentialType::Personhood,
+            credential: vmc,
+            type_: DTGCredentialType::Membership,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 
@@ -88,6 +63,35 @@ impl DTGCredential {
         DTGCredential {
             credential: vrc,
             type_: DTGCredentialType::Relationship,
+            version: crate::W3CVCVersion::V2_0,
+        }
+    }
+
+    /// Creates a new Verified Invitation Credential (VIC)
+    /// issuer: The issuer DID of the credential
+    /// subject: The DID of the subject of this credential
+    /// valid_from: The datetime from which this credential is valid
+    /// valid_until: Optional: The datetime this credential is valid until
+    pub fn new_vic(
+        issuer: String,
+        subject: String,
+        valid_from: DateTime<Utc>,
+        valid_until: Option<DateTime<Utc>>,
+    ) -> Self {
+        let mut vic = DTGCommon {
+            issuer,
+            valid_from,
+            valid_until,
+            credential_subject: CredentialSubject::Basic(CredentialSubjectBasic { id: subject }),
+            ..Default::default()
+        };
+
+        vic.type_.push(DTGCredentialType::Invitation.to_string());
+
+        DTGCredential {
+            credential: vic,
+            type_: DTGCredentialType::Invitation,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 
@@ -115,6 +119,7 @@ impl DTGCredential {
         DTGCredential {
             credential: vpc,
             type_: DTGCredentialType::Persona,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 
@@ -147,6 +152,7 @@ impl DTGCredential {
         DTGCredential {
             credential: vec,
             type_: DTGCredentialType::Endorsement,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 
@@ -163,7 +169,7 @@ impl DTGCredential {
         valid_from: DateTime<Utc>,
         valid_until: Option<DateTime<Utc>>,
         digest: Option<String>,
-        witness_context: Option<Value>,
+        witness_context: Option<WitnessContext>,
     ) -> Self {
         let mut vwc = DTGCommon {
             issuer,
@@ -182,6 +188,7 @@ impl DTGCredential {
         DTGCredential {
             credential: vwc,
             type_: DTGCredentialType::Witness,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 
@@ -214,19 +221,20 @@ impl DTGCredential {
         DTGCredential {
             credential: rcard,
             type_: DTGCredentialType::RCard,
+            version: crate::W3CVCVersion::V2_0,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::DTGCredential;
+    use crate::{DTGCredential, WitnessContext};
     use chrono::{DateTime, Utc};
     use serde_json::json;
 
     #[test]
-    fn test_phc_serialization() {
-        let phc = DTGCredential::new_phc(
+    fn test_vmc_serialization() {
+        let vmc = DTGCredential::new_vmc(
             "did:example:issuer".to_string(),
             "did:example:subject".to_string(),
             DateTime::parse_from_rfc3339("2025-12-11T00:00:00Z")
@@ -235,7 +243,7 @@ mod tests {
             None,
         );
 
-        let txt = serde_json::to_string_pretty(&phc).unwrap();
+        let txt = serde_json::to_string_pretty(&vmc).unwrap();
         let sample = r#"{
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
@@ -244,39 +252,7 @@ mod tests {
   "type": [
     "VerifiableCredential",
     "DTGCredential",
-    "PersonhoodCredential"
-  ],
-  "issuer": "did:example:issuer",
-  "validFrom": "2025-12-11T00:00:00Z",
-  "credentialSubject": {
-    "id": "did:example:subject"
-  }
-}"#;
-
-        assert_eq!(txt, sample);
-    }
-
-    #[test]
-    fn test_vcc_serialization() {
-        let vcc = DTGCredential::new_vcc(
-            "did:example:issuer".to_string(),
-            "did:example:subject".to_string(),
-            DateTime::parse_from_rfc3339("2025-12-11T00:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc),
-            None,
-        );
-
-        let txt = serde_json::to_string_pretty(&vcc).unwrap();
-        let sample = r#"{
-  "@context": [
-    "https://www.w3.org/ns/credentials/v2",
-    "https://firstperson.network/credentials/dtg/v1"
-  ],
-  "type": [
-    "VerifiableCredential",
-    "DTGCredential",
-    "CommunityCredential"
+    "MembershipCredential"
   ],
   "issuer": "did:example:issuer",
   "validFrom": "2025-12-11T00:00:00Z",
@@ -309,6 +285,38 @@ mod tests {
     "VerifiableCredential",
     "DTGCredential",
     "RelationshipCredential"
+  ],
+  "issuer": "did:example:issuer",
+  "validFrom": "2025-12-11T00:00:00Z",
+  "credentialSubject": {
+    "id": "did:example:subject"
+  }
+}"#;
+
+        assert_eq!(txt, sample);
+    }
+
+    #[test]
+    fn test_vic_serialization() {
+        let vic = DTGCredential::new_vic(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            DateTime::parse_from_rfc3339("2025-12-11T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            None,
+        );
+
+        let txt = serde_json::to_string_pretty(&vic).unwrap();
+        let sample = r#"{
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://firstperson.network/credentials/dtg/v1"
+  ],
+  "type": [
+    "VerifiableCredential",
+    "DTGCredential",
+    "InvitationCredential"
   ],
   "issuer": "did:example:issuer",
   "validFrom": "2025-12-11T00:00:00Z",
@@ -404,11 +412,11 @@ mod tests {
                 .with_timezone(&Utc),
             None,
             Some("sha256:test1234".to_string()),
-            Some(json!({
-                "event": "EthDenver 2024",
-                "sessionId": "session-8822-nonce",
-                "method": "in-person-proximity"
-            })),
+            Some(WitnessContext {
+                event: Some("EthDenver 2024".to_string()),
+                session_id: Some("session-8822-nonce".to_string()),
+                method: Some("in-person-proximity".to_string()),
+            }),
         );
 
         let txt = serde_json::to_string_pretty(&vwc).unwrap();
@@ -430,8 +438,8 @@ mod tests {
     "digest": "sha256:test1234",
     "witnessContext": {
       "event": "EthDenver 2024",
-      "method": "in-person-proximity",
-      "sessionId": "session-8822-nonce"
+      "sessionId": "session-8822-nonce",
+      "method": "in-person-proximity"
     }
   }
 }"#;

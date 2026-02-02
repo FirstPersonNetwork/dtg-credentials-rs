@@ -32,8 +32,8 @@ async fn main() -> Result<()> {
     let (issuer_did, issuer_secret) = DID::generate_did_key(KeyType::Ed25519)?;
     println!("Created issuer DID and Secrets: {issuer_did}");
 
-    // Create a Personhood Credential (PHC)
-    let mut phc = DTGCredential::new_phc(
+    // Create a Persona Credential (VPC)
+    let mut vpc = DTGCredential::new_vpc(
         issuer_did.clone(),
         "did:example:subject".to_string(),
         Utc::now(),
@@ -41,31 +41,31 @@ async fn main() -> Result<()> {
     );
     println!("*************************************************************************");
     println!(
-        "Created unsigned Personhood Credential:\n{}",
-        serde_json::to_string_pretty(&phc).unwrap()
+        "Created unsigned Persona Credential:\n{}",
+        serde_json::to_string_pretty(&vpc).unwrap()
     );
     println!();
 
-    // Clone the unsigned PHC so that we can use it later to verify
-    let unsigned_phc = phc.clone();
+    // Clone the unsigned VPC so that we can use it later to verify
+    let unsigned_vpc = vpc.clone();
 
-    // Sign the PHC Credential using the issuer's Secret
-    let proof = phc.sign(&issuer_secret, None)?;
+    // Sign the VPC Credential using the issuer's Secret
+    let proof = vpc.sign(&issuer_secret, None)?;
     println!("*************************************************************************");
     println!(
-        "Signed the PHC:\n\n{}",
-        serde_json::to_string_pretty(&phc.credential().proof).unwrap()
+        "Signed the VPC:\n\n{}",
+        serde_json::to_string_pretty(&vpc.credential().proof).unwrap()
     );
     println!();
 
-    // verify the PHC Credential
+    // verify the VPC Credential
 
-    tdk.verify_data(&unsigned_phc, None, &proof).await?;
+    tdk.verify_data(&unsigned_vpc, None, &proof).await?;
     println!("*************************************************************************");
-    println!("Successfully verified the Personhood Credential");
+    println!("Successfully verified the Persona Credential");
     println!(
         "Full Credential:\n\n{}",
-        serde_json::to_string_pretty(&phc).unwrap()
+        serde_json::to_string_pretty(&vpc).unwrap()
     );
     println!();
 

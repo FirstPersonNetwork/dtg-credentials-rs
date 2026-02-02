@@ -1,24 +1,26 @@
 # Decentralized Trust Graph (DTG) Credentials
 
-NOTE: This is an early implementation to v0.2 of these [specifications](https://github.com/trustoverip/dtgwg-cred-tf/tree/14-revised-vrc-spec---v02).
+**_NOTE:_** This is an early implementation to v0.3 of these [specifications](https://github.com/trustoverip/dtgwg-cred-tf/tree/14-revised-vrc-spec---v02).
 
 See the [First Person Project Whitepaper](https://www.firstperson.network/white-paper)
 for more information.
+
+This library supports both W3C VC 1.1 and 2.0 specifications.
 
 ## Credential Type Hierarchy
 
 All credentials inherit from the abstract `DTGCredential`.
 
 ```text
-VerifiableCredential (W3C Standard)
+VerifiableCredential
 └── DTGCredential
-    ├── CommunityCredential (VCC)
-    ├── PersonhoodCredential (PHC)
+    ├── MembershipCredential (VMC)
     ├── RelationshipCredential (VRC)
+    ├── InvitationCredential (VIC)
     ├── PersonaCredential (VPC)
     ├── EndorsementCredential (VEC)
     ├── WitnessCredential (VWC)
-    └── RCardCredential (R-Card)
+    └── RelationshipCard (RCard) [VDS - not a credential]
 ```
 
 ## End to End Example
@@ -38,7 +40,7 @@ of that type.
 Example:
 
 ```Rust
-let phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
+let vpc = DTGCredential::new_vpc(issuer, subject, valid_from, valid_to);
 ```
 
 The created `TDGCredential` can be Serialized to JSON using `serde_json` allowing
@@ -50,9 +52,9 @@ By default the `affinidi-signing` feature is enabled which allows you to sign a
 credential
 
 ```Rust
-let mut phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
+let mut vpc = DTGCredential::new_vpc(issuer, subject, valid_from, valid_to);
 
-phc.sign(&signing_key)?;
+vpc.sign(&signing_key)?;
 ```
 
 ### Verifying credentials
@@ -64,11 +66,11 @@ key, then you can directly verify the credential:
 
 ```Rust
 let signing_key = Secret::generate_ed25519(None, None);
-let mut phc = DTGCredential::new_phc(issuer, subject, valid_from, valid_to);
+let mut vpc = DTGCredential::new_vpc(issuer, subject, valid_from, valid_to);
 
-phc.sign(&signing_key)?;
+vpc.sign(&signing_key)?;
 
-phc.verify(&signing_key.get_public_bytes())?;
+vpc.verify(&signing_key.get_public_bytes())?;
 ```
 
 **Method 2:** If you do not have the public key material, you are likely going to
@@ -107,9 +109,9 @@ let credential = vrc.credential();
 You can determine the credential type easily using:
 
 ```Rust
-let vcc = DTGCredential::new_vcc(issuer, subject, valid_from, valid_to);
+let vmc = DTGCredential::new_vmc(issuer, subject, valid_from, valid_to);
 
-if let DTGCredentialType::VCC = vcc.type_() {
+if let DTGCredentialType::VMC = vmc.type_() {
   // Good
 }
 ```
@@ -117,9 +119,9 @@ if let DTGCredentialType::VCC = vcc.type_() {
 Has this Credential been signed?
 
 ```Rust
-let vcc = DTGCredential::new_vrc(issuer, subject, valid_from, valid_to);
+let vmc = DTGCredential::new_vmc(issuer, subject, valid_from, valid_to);
 
-if vcc.signed() {
+if vmc.signed() {
   println!("Credential has been signed");
 } else {
   println!("Credential has not been signed");
