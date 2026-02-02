@@ -16,11 +16,14 @@ impl DTGCredential {
     /// subject: The DID of the subject of this credential
     /// valid_from: The datetime from which this credential is valid
     /// valid_until: Optional: The datetime this credential is valid until
+    /// personhood: Whether this VMC can be used as a form of Personhood Credential
+    ///             - Adds PersonhoodCredential to the type array if true
     pub fn new_vmc(
         issuer: String,
         subject: String,
         valid_from: DateTime<Utc>,
         valid_until: Option<DateTime<Utc>>,
+        personhood: bool,
     ) -> Self {
         let mut vmc = DTGCommon {
             issuer,
@@ -31,6 +34,10 @@ impl DTGCredential {
         };
 
         vmc.type_.push(DTGCredentialType::Membership.to_string());
+
+        if personhood {
+            vmc.type_.push("PersonhoodCredential".to_string());
+        }
 
         DTGCredential {
             credential: vmc,
@@ -241,6 +248,7 @@ mod tests {
                 .unwrap()
                 .with_timezone(&Utc),
             None,
+            false,
         );
 
         let txt = serde_json::to_string_pretty(&vmc).unwrap();
@@ -264,6 +272,39 @@ mod tests {
         assert_eq!(txt, sample);
     }
 
+    #[test]
+    fn test_vmc_phc_serialization() {
+        let vmc = DTGCredential::new_vmc(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            DateTime::parse_from_rfc3339("2025-12-11T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            None,
+            true,
+        );
+
+        let txt = serde_json::to_string_pretty(&vmc).unwrap();
+        let sample = r#"{
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://firstperson.network/credentials/dtg/v1"
+  ],
+  "type": [
+    "VerifiableCredential",
+    "DTGCredential",
+    "MembershipCredential",
+    "PersonhoodCredential"
+  ],
+  "issuer": "did:example:issuer",
+  "validFrom": "2025-12-11T00:00:00Z",
+  "credentialSubject": {
+    "id": "did:example:subject"
+  }
+}"#;
+
+        assert_eq!(txt, sample);
+    }
     #[test]
     fn test_vrc_serialization() {
         let vrc = DTGCredential::new_vrc(
