@@ -175,8 +175,20 @@ impl DTGCredential {
         )
     }
 
+    /// Is this credential a W3C VC Version 1.1 or 2.0 credential?
     pub fn get_w3c_vc_version(&self) -> W3CVCVersion {
         self.version
+    }
+
+    /// returns true if this credential a personhood credential (PHC)
+    pub fn is_personhood_credential(&self) -> bool {
+        if let DTGCredentialType::Membership = self.type_ {
+            self.credential
+                .type_
+                .contains(&"PersonhoodCredential".to_string())
+        } else {
+            false
+        }
     }
 }
 
@@ -523,9 +535,82 @@ pub struct CredentialSubjectRCard {
 mod tests {
     use crate::{
         CredentialSubject, CredentialSubjectRCard, DTGCommon, DTGCredential, DTGCredentialType,
+        W3CVCVersion,
     };
     use chrono::{DateTime, Utc};
     use serde_json::Value;
+
+    #[test]
+    fn test_vmc_vc_1_deserialize() {
+        // tests deserialize a W3C VC Version 1.1 credential
+        let vmc: DTGCredential = match serde_json::from_str(
+            r#"{
+"@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://firstperson.network/credentials/dtg/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1"
+  ],
+  "type": ["VerifiableCredential", "DTGCredential", "MembershipCredential"],
+  "issuer": "did:web:chess-club.example",
+  "issuanceDate": "2026-01-06T10:00:00Z",
+  "expirationDate": "2027-01-06T10:00:00Z",
+  "credentialSubject": {
+    "id": "did:key:z6MkpTHR8VNs..."
+  }
+            }"#,
+        ) {
+            Ok(vmc) => vmc,
+            Err(e) => panic!("Couldn't deserialize VMC: {}", e),
+        };
+
+        assert!(matches!(vmc.type_, DTGCredentialType::Membership));
+        assert!(matches!(
+            vmc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
+        assert!(matches!(vmc.version, W3CVCVersion::V1_1));
+        assert!(matches!(vmc.get_w3c_vc_version(), W3CVCVersion::V1_1));
+    }
+
+    #[test]
+    fn test_missing_w3c_context() {
+        // tests deserialize a W3C VC Version 1.1 credential
+        assert!(
+            serde_json::from_str::<DTGCredential>(
+                r#"{
+"@context": [
+    "https://firstperson.network/credentials/dtg/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1"
+  ],
+  "type": ["VerifiableCredential", "DTGCredential", "MembershipCredential"],
+  "issuer": "did:web:chess-club.example",
+  "issuanceDate": "2026-01-06T10:00:00Z",
+  "expirationDate": "2027-01-06T10:00:00Z",
+  "credentialSubject": {
+    "id": "did:key:z6MkpTHR8VNs..."
+  }
+            }"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_mutable_credential() {
+        let mut vmc = DTGCredential::new_vmc(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            DateTime::parse_from_rfc3339("2025-12-11T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            None,
+            false,
+        );
+
+        let cred = vmc.credential_mut();
+        cred.type_.push("PersonhoodCredential".to_string());
+        assert!(vmc.is_personhood_credential());
+    }
 
     #[test]
     fn test_vmc_deserialize() {
@@ -542,6 +627,31 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VMC: {}", e),
         };
 
+        assert!(!vmc.is_personhood_credential());
+        assert!(matches!(vmc.type_, DTGCredentialType::Membership));
+        assert!(matches!(
+            vmc.credential().credential_subject,
+            CredentialSubject::Basic(_)
+        ));
+        assert!(matches!(vmc.get_w3c_vc_version(), W3CVCVersion::V2_0));
+    }
+
+    #[test]
+    fn test_vmc_phc_deserialize() {
+        let vmc: DTGCredential = match serde_json::from_str(
+            r#"{
+                "@context": ["https://www.w3.org/ns/credentials/v2"],
+                "type": ["VerifiableCredential", "DTGCredential",  "MembershipCredential", "PersonhoodCredential"],
+                "issuer": "did:example:community",
+                "validFrom": "2024-06-18T10:00:00Z",
+                "credentialSubject": { "id": "did:example:rDid" }
+            }"#,
+        ) {
+            Ok(vmc) => vmc,
+            Err(e) => panic!("Couldn't deserialize VMC: {}", e),
+        };
+
+        assert!(vmc.is_personhood_credential());
         assert!(matches!(vmc.type_, DTGCredentialType::Membership));
         assert!(matches!(
             vmc.credential().credential_subject,
@@ -586,6 +696,7 @@ mod tests {
             Err(e) => panic!("Couldn't deserialize VIC: {}", e),
         };
 
+        assert!(!vic.is_personhood_credential());
         assert!(matches!(vic.type_, DTGCredentialType::Invitation));
         assert!(matches!(
             vic.credential().credential_subject,
@@ -823,6 +934,7 @@ mod tests {
         };
 
         assert!(cred.signed());
+        assert!(cred.proof_value().is_some());
     }
 
     #[test]
@@ -841,6 +953,7 @@ mod tests {
         };
 
         assert!(!cred.signed());
+        assert!(cred.proof_value().is_none());
     }
 
     #[test]
@@ -950,12 +1063,35 @@ mod tests {
             None,
         );
 
-        assert!(cred.sign(&secret, None).is_ok());
+        assert!(cred.sign(&secret, Some(Utc::now())).is_ok());
 
         assert!(
             cred.verify_proof_with_public_key(secret.get_public_bytes())
                 .is_ok()
         );
+
+        let secret2 = Secret::generate_ed25519(None, None);
+        assert!(
+            cred.verify_proof_with_public_key(secret2.get_public_bytes())
+                .is_err()
+        );
+    }
+
+    #[cfg(feature = "affinidi-signing")]
+    #[test]
+    fn test_signing_error() {
+        use affinidi_secrets_resolver::secrets::Secret;
+
+        let secret = Secret::generate_x25519(None, None).unwrap();
+
+        let mut cred = DTGCredential::new_vrc(
+            "did:example:issuer".to_string(),
+            "did:example:subject".to_string(),
+            Utc::now(),
+            None,
+        );
+
+        assert!(cred.sign(&secret, Some(Utc::now())).is_err());
     }
 
     #[cfg(feature = "affinidi-signing")]
