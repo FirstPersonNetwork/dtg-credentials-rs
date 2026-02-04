@@ -1,6 +1,6 @@
 # Decentralized Trust Graph (DTG) Credentials
 
-**_NOTE:_** This is an early implementation to v0.3 of these [specifications](https://github.com/trustoverip/dtgwg-cred-tf/tree/14-revised-vrc-spec---v02).
+**_NOTE:_** This is an early implementation to v0.3 of these [specifications](https://github.com/trustoverip/dtgwg-cred-tf).
 
 See the [First Person Project Whitepaper](https://www.firstperson.network/white-paper)
 for more information.
